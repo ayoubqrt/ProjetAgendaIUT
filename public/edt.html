@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Emploi du temps</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vuetify@2.4.5/dist/vuetify.min.css">
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@5.x/css/materialdesignicons.min.css">
+	<link rel="stylesheet" href="edt.css">
+</head>
+
+<body>
+	<div id="app">
+		<v-app id="inspire">
+			<div data-html2canvas-ignore="true">
+				<v-sheet tile height="54" class="d-flex">
+					<div style="justify-content: center;">
+						<v-btn icon class="ma-2" color="blue" @click="$refs.calendar.prev()">
+							<v-icon>
+								mdi-chevron-left
+							</v-icon>
+						</v-btn>
+						<v-btn class="ma-2" color="white" @click="setToday"
+							:disabled='currentDay == "" || currentDay == $refs.calendar.start'>
+							Aujourd'hui
+						</v-btn>
+						<v-btn icon class="ma-2" color="blue" @click="$refs.calendar.next()">
+							<v-icon>
+								mdi-chevron-right
+							</v-icon>
+						</v-btn>
+					</div>
+					<v-spacer></v-spacer>
+					<div>
+						<a href="noteProf.html" target="_blank" style="text-decoration: none;">
+							<v-btn outlined>
+								Avis des profs
+							</v-btn>
+						</a>
+						<a href="noteCours.html" target="_blank" style="text-decoration: none;">
+							<v-btn outlined>
+								Avis des cours
+							</v-btn>
+						</a>
+						<v-btn class="ma-2" color="green" @click="downloadToPdf()">
+							<v-icon small>
+								mdi-download
+							</v-icon>
+						</v-btn>
+					</div>
+				</v-sheet>
+			</div>
+			<v-navigation-drawer data-html2canvas-ignore="true" v-model="drawer" absolute temporary right width="400px">
+				<div style="padding:10px" v-if="selectedEvent">
+					<div style="text-align: center; display:flex; margin-bottom:15px">
+						<h2 v-if="isNoteTonProf">Note ton prof !</h2>
+						<h2 v-if="!isNoteTonProf">Note ton cours !</h2>
+						<v-spacer></v-spacer>
+						<v-btn icon @click="closeDrawer"> <v-icon small> mdi-close </v-icon></v-btn>
+					</div>
+					<form
+						v-on:submit.prevent="isNoteTonProf ? postAvis(true, selectedEvent.idProfesseur) : postAvis(false, selectedEvent.idCours)">
+						<v-select label="Note" :items="[0,1,2,3,4,5]" outlined class="form-control" v-model="nouvelAvis.note"/></v-select>
+
+						<v-textarea label="Commentaire" outlined v-model="nouvelAvis.commentaire" required> </v-textarea>
+
+						<v-text-field label="E-mail" outlined type="email"v-model="nouvelAvis.emailEtudiant" required> </v-text-field>
+
+						<v-btn type="submit" color="green">Ajouter un avis </v-btn>
+						<p v-if="isAvisSent" style="text-align: center; margin-top: 10px; font-weight: bold;"> Avis bien envoyé ! </p>
+					</form>
+
+					<ul class="text-danger">
+						<li v-for="error in errors">{{ error }}</li>
+					</ul>
+				</div>
+			</v-navigation-drawer>
+
+			<v-calendar 
+				event-overlap-mode="column"
+				locale="fr"
+				ref="calendar" 
+				v-model="currentDay" 
+				type="day" 
+				:first-interval=7 
+				:interval-count=13 
+				:events="events"
+				@click:event="showEvent"
+				@change="getCours">
+			</v-calendar>
+
+			<v-dialog
+				v-model="dialog"
+				width="500">
+			<v-card>
+			  <v-card-title class="headline grey lighten-2">
+				Détails du cours
+				<v-spacer></v-spacer>
+				<v-btn icon @click="dialog = false"> <v-icon small> mdi-close </v-icon></v-btn>
+			  </v-card-title>
+	  
+			  <v-simple-table style="margin: 10px" v-if="coursDetails">
+				<template v-slot:default>
+				  <tbody>
+					<tr	v-for="item in coursDetails"
+					  	:key="item.name">
+					  <td>{{ item.name }}</td>
+					  <td>{{ item.value }}</td>
+					</tr>
+				  </tbody>
+				</template>
+			  </v-simple-table>
+
+			  <v-card-actions>
+				<v-spacer></v-spacer>
+				<v-btn
+				  color="primary"
+				  text
+				  @click="openDrawer(true)"
+				  :disabled="!selectedEvent.idProfesseur"
+				>
+				  Noter le prof 
+				</v-btn>
+				<v-btn
+				  color="primary"
+				  text
+				  @click="openDrawer(false)"
+				>
+				  Noter le cours 
+				</v-btn>
+			  </v-card-actions>
+			</v-card>
+		  </v-dialog>
+		</v-app>
+	</div>
+</body>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@2.6.12/dist/vue.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/vuetify@2.4.5/dist/vuetify.min.js"></script>
+<script src="https://raw.githack.com/eKoopmans/html2pdf/master/dist/html2pdf.bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+
+<script>
+	new Vue({
+		el: '#app',
+		vuetify: new Vuetify(),
+		data: () => ({
+			currentDay: '',
+			events: [],
+			colors: ['blue', 'indigo', 'deep-purple', 'cyan', 'green', 'orange', 'grey darken-1', 'pink', 'red', 'yellow'],
+			drawer: null,
+			nouvelAvis: {},
+			errors: [],
+			isNoteTonProf: false,
+			selectedEvent: {},
+			dialog: null,
+			coursDetails: null,
+			isAvisSent: false
+		}),
+		methods: {
+			getEvents(cours) {
+				this.cours = cours;
+				const events = cours.map((unCours) => {
+					return {
+						idCours: unCours.id,
+						idProfesseur: unCours.professeur ? unCours.professeur.id : null,
+						name: `${unCours.type} ${unCours.matiere.titre}${unCours.professeur ? " - " + unCours.professeur.nom + " " + unCours.professeur.prenom.charAt(0).toUpperCase() + '.' : ''}${unCours.salle ? " - S." + unCours.salle.numero : ''}`,
+						start: new Date(unCours.dateHeureDebut.date),
+						end: new Date(unCours.dateHeureFin.date),
+						color: this.colors[unCours.matiere.id % this.colors.length - 1],
+						timed: true
+					};
+				});
+				this.events = events;
+			},
+
+			getCours() {
+				if (this.currentDay) {
+					fetch(`http://localhost:8000/api/cours/jour/${this.currentDay}`)
+						.then((response) => response.json())
+						.then((cours) => this.getEvents(cours))
+						.catch(error => console.log(error));
+				}
+			},
+
+			showEvent({ nativeEvent, event }) {
+				this.coursDetails = this.newCours(event.idCours);
+				this.selectedEvent = event;
+				this.dialog = true;
+			},
+
+			newAvis() {
+				return {
+					note: 0,
+					commentaire: '',
+					emailEtudiant: ''
+				}
+			},
+
+			newCours(idCours) {
+				const unCours = this.cours.find(cours => cours.id === idCours);
+
+				return [
+					{
+						name: "Enseignement",
+						value: unCours.type + " " + unCours.matiere.titre
+					},
+					{
+						name: "Date début",
+						value: new Date(unCours.dateHeureDebut.date).toLocaleString()
+					},
+					{
+						name: "Date fin",
+						value: new Date(unCours.dateHeureFin.date).toLocaleString()
+					},
+					{
+						name: "Enseignant",
+						value: `${unCours.professeur ? unCours.professeur.nom.toUpperCase() + " " + unCours.professeur.prenom.charAt(0).toUpperCase() + '.' : ''}`,
+					},
+					{
+						name: "Salle",
+						value: `${unCours.salle ? unCours.salle.numero : ''}`,
+					},
+				]
+			},
+
+			postAvis(isNoteTonProf, id) {
+				this.errors = [];
+				const apiBase = "http://localhost:8000/api/";
+				let url = apiBase;
+				isNoteTonProf ? url += `professeurs/${id}/avis` : url += `cours/${id}/avis`;
+
+				axios.post(url, this.nouvelAvis)
+					.then(response => {
+						this.nouvelAvis = this.newAvis();
+						this.isAvisSent = true;
+						setTimeout(() => {
+							this.isAvisSent = false;
+						}, 5000);
+					})
+					.catch(error => this.errors = Object.values(error.response.data));
+			},
+
+			downloadToPdf() {
+				html2pdf(document.body, { html2canvas: 
+				{ scale: 3 }, 
+				filename: `EDT-${this.currentDay}.pdf`,
+				jsPDF: { orientation: 'landscape' }});
+			},
+
+			setToday() {
+				this.events = [];
+				this.currentDay = this.$refs.calendar.start;
+			},
+
+			openDrawer(isNoteTonProf) {
+				isNoteTonProf === true ? this.isNoteTonProf = true : this.isNoteTonProf = false;
+				this.dialog = false;
+				this.drawer = true;
+			},
+
+			closeDrawer() {
+				this.drawer = false;
+			},
+		},
+
+		mounted() {
+			this.nouvelAvis = this.newAvis();
+			this.setToday();
+			this.getCours();
+		}
+	})
+</script>
+</html>

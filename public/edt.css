@@ -1,0 +1,13 @@
+.pl-1 {
+    text-align: center;
+}
+
+.v-event-timed {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.v-calendar-daily__scroll-area {
+    overflow-y: auto;
+}
